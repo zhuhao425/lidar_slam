@@ -205,6 +205,114 @@ public:
             int& beam_number)
     {
        //TODO
+       //每个位姿进行线性插值时的步长
+        double beam_step = 1.0 / (beam_number-1);
+
+        //机器人的起始角度 和 最终角度
+        tf::Quaternion start_angle_q =   frame_start_pose.getRotation();
+        tf::Quaternion   end_angle_q =   frame_end_pose.getRotation();
+
+        //转换到弧度
+        double start_angle_r = tf::getYaw(start_angle_q);
+        double base_angle_r = tf::getYaw(frame_base_pose.getRotation());
+
+        //机器人的起始位姿
+        tf::Vector3 start_pos = frame_start_pose.getOrigin();
+        start_pos.setZ(0);
+
+        //最终位姿
+        tf::Vector3 end_pos = frame_end_pose.getOrigin();
+        end_pos.setZ(0);
+
+        //基础坐标系
+        tf::Vector3 base_pos = frame_base_pose.getOrigin();
+        base_pos.setZ(0);
+
+        double mid_angle;
+        tf::Vector3 mid_pos;
+        tf::Vector3 mid_point;
+
+        double lidar_angle, lidar_dist;
+        //插值计算出来每个点对应的位姿
+        for(int i = 0; i< beam_number;i++)
+        {
+            //角度插值
+            mid_angle =  tf::getYaw(start_angle_q.slerp(end_angle_q, beam_step * i));
+
+            //线性插值
+            mid_pos = start_pos.lerp(end_pos, beam_step * i);
+
+            //得到激光点在odom 坐标系中的坐标 根据
+            double tmp_angle;
+
+            //如果激光雷达不等于无穷,则需要进行矫正.
+            if( tfFuzzyZero(ranges[startIndex + i]) == false)
+            {
+                //计算对应的激光点在odom坐标系中的坐标
+
+                //得到这帧激光束距离和夹角
+                lidar_dist  =  ranges[startIndex+i];
+                lidar_angle =  angles[startIndex+i];
+
+                //激光雷达坐标系下的坐标
+                double laser_x,laser_y;
+                laser_x = lidar_dist * cos(lidar_angle);
+                laser_y = lidar_dist * sin(lidar_angle);
+
+                //里程计坐标系下的坐标
+                double odom_x,odom_y;
+                odom_x = laser_x * cos(mid_angle) - laser_y * sin(mid_angle) + mid_pos.x();
+                odom_y = laser_x * sin(mid_angle) + laser_y * cos(mid_angle) + mid_pos.y();
+
+                //转换到类型中去
+                mid_point.setValue(odom_x, odom_y, 0);
+
+                //把在odom坐标系中的激光数据点 转换到 基础坐标系
+                double x0,y0,a0,s,c;
+                x0 = base_pos.x();
+                y0 = base_pos.y();
+                a0 = base_angle_r;
+                s = sin(a0);
+                c = cos(a0);
+                /*
+                 * 把base转换到odom 为[c -s x0;
+                 *                   s c y0;
+                 *                   0 0 1]
+                 * 把odom转换到base为 [c s -x0*c-y0*s;
+                 *               -s c x0*s - y0*c;
+                 *                0 0 1]代数余子式取逆
+                 */
+                double tmp_x,tmp_y;
+                tmp_x =  mid_point.x()*c  + mid_point.y()*s - x0*c - y0*s;
+                tmp_y = -mid_point.x()*s  + mid_point.y()*c  + x0*s - y0*c;
+                mid_point.setValue(tmp_x,tmp_y,0);
+
+                //然后计算以起始坐标为起点的 dist angle
+                double dx,dy;
+                dx = (mid_point.x());
+                dy = (mid_point.y());
+                lidar_dist = sqrt(dx*dx + dy*dy);
+                lidar_angle = atan2(dy,dx);
+
+                //激光雷达被矫正
+                ranges[startIndex+i] = lidar_dist;
+                angles[startIndex+i] = lidar_angle;
+            }
+            //如果等于无穷,则随便计算一下角度
+            else
+            {
+                //激光角度
+                lidar_angle = angles[startIndex+i];
+
+                //里程计坐标系的角度
+                tmp_angle = mid_angle + lidar_angle;
+                tmp_angle = tfNormalizeAngle(tmp_angle);
+
+                //如果数据非法 则只需要设置角度就可以了。把角度换算成start_pos坐标系内的角度
+                lidar_angle = tfNormalizeAngle(tmp_angle - start_angle_r);
+
+                angles[startIndex+i] = lidar_angle;
+            }
        //end of TODO
     }
 

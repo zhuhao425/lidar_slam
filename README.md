@@ -1,2 +1,2 @@
 # lidar_slam
-激光SLAM学习
+SLAM相关知识和代码
